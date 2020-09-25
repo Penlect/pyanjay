@@ -1,0 +1,3 @@
+[submodule "Anjay"]
+	path = Anjay
+	url = git@github.com:AVSystem/Anjay.git

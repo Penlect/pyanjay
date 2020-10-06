@@ -9,7 +9,9 @@ language: python
 env:
   global:
     - CIBW_BUILD_VERBOSITY=3
-    - CIBW_BEFORE_BUILD="yum install -y mbedtls-devel zlib-devel"
+    - CIBW_BEFORE_ALL_LINUX="yum install -y mbedtls-devel zlib-devel"
+    - CIBW_BEFORE_ALL_MACOS="brew install mbedtls zlib"
+    - CIBW_BEFORE_ALL_WINDOWS=""
     # - CIBW_TEST_COMMAND="python -m unittest discover -v {project}/tests"
     - CIBW_BUILD="cp3?-*"
     - TWINE_USERNAME=__token__
@@ -38,14 +40,6 @@ jobs:
         - export PATH="/c/Python38:/c/Python38/Scripts:$PATH"
         # make sure it's on PATH as 'python3'
         - ln -s /c/Python38/python.exe /c/Python38/python3.exe
-
-# Handle git submodules yourself
-git:
-    submodules: false
-# Use sed to replace the SSH URL with the public URL, then initialize submodules
-before_install:
-    - sed -i 's/git@github.com:/https:\/\/github.com\//' .gitmodules
-    - git submodule update --init --recursive
 
 install:
   - python3 -m pip install cibuildwheel==1.6.1

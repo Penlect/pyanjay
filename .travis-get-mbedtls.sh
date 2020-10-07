@@ -1,4 +1,4 @@
-#!/usr/bin/bash
+#!/bin/bash
 
 if [ $AUDITWHEEL_ARCH == "x86_64" ]; then
     yum install -y mbedtls-devel zlib-devel

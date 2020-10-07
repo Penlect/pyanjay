@@ -1,6 +1,6 @@
 """pyanjay build script"""
 
-import os
+import pathlib
 from setuptools import setup, Extension, find_packages
 
 with open('README.rst') as readme_file:
@@ -13,30 +13,26 @@ with open('pyanjay/__init__.py') as init:
     lines = [line for line in init.readlines() if line.startswith('__')]
 exec(''.join(lines), globals())
 
-def find_c_files(*dirs):
-    output = list()
-    for root in dirs:
-        for path, _, files in os.walk(root):
-            for f in files:
-                if f.endswith('.c'):
-                    output.append(os.path.join(path, f))
-    return output
-
-source_dirs = [
-    'src',
-    'Anjay/src',
-    'Anjay/deps/avs_coap/src',
-    'Anjay/deps/avs_commons/src',
-]
-
-c_files = find_c_files(*source_dirs)
-
-include_dirs = source_dirs + [
-    'include',
-    'Anjay/example_configs/linux_lwm2m10',
-    'Anjay/include_public',
-    'Anjay/deps/avs_coap/include_public',
-    'Anjay/deps/avs_commons/include_public'
+anjay_static = [
+    '/usr/local/lib/libanjay.a',
+    '/usr/local/lib/libavs_coap.a',
+    '/usr/local/lib/libavs_algorithm.a',
+    '/usr/local/lib/libavs_net_mbedtls.a',
+    '/usr/local/lib/libavs_crypto_mbedtls.a',
+    '/usr/local/lib/libavs_sched.a',
+    '/usr/local/lib/libavs_stream_net.a',
+    '/usr/local/lib/libavs_persistence.a',
+    '/usr/local/lib/libavs_rbtree.a',
+    '/usr/local/lib/libavs_stream.a',
+    '/usr/local/lib/libavs_buffer.a',
+    '/usr/local/lib/libavs_list.a',
+    '/usr/local/lib/libavs_utils.a',
+    '/usr/local/lib/libavs_compat_threading_atomic_spinlock.a',
+    '/usr/local/lib/libavs_log.a',
+    '/usr/local/lib/libavs_list.a',
+    '/usr/local/lib/libavs_utils.a',
+    '/usr/local/lib/libavs_compat_threading_atomic_spinlock.a',
+    '/usr/local/lib/libavs_log.a'
 ]
 
 anjaylibs = [
@@ -45,23 +41,28 @@ anjaylibs = [
     'mbedcrypto'
 ]
 
+srcdir = pathlib.Path('src')
+srcfiles = [str(srcdir /f.name) for f in srcdir.glob('*.c')]
 ext_modules = [
     Extension(
         'pyanjay.anjay',
-        sources=c_files + ['pyanjay/anjay.pyx'],
-        include_dirs=include_dirs,
+        sources=['pyanjay/anjay.pyx'] + srcfiles,
+        library_dirs=['/usr/lib/x86_64-linux-gnu/'],
         libraries=anjaylibs,
+        include_dirs=['include', '/usr/local/include/'],
+        extra_objects=anjay_static,
     ),
     Extension(
         'pyanjay.dm',
-        sources= c_files + ['pyanjay/dm.pyx'],
-        include_dirs=include_dirs,
+        sources=['pyanjay/dm.pyx'],
+        library_dirs=['/usr/lib/x86_64-linux-gnu/'],
         libraries=anjaylibs,
+        include_dirs=['include', '/usr/local/include/'],
+        extra_objects=anjay_static,
     )
 ]
-
 for e in ext_modules:
-    e.cython_directives = {'language_level': '3'}
+    e.cython_directives = {'language_level': "3"}
 
 setup(
     name='pyanjay',

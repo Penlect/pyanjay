@@ -14,6 +14,10 @@ dist/$(SDIST): src/*.c include/*.h pyanjay/*.pyx pyanjay/*.pxd setup.py
 	python3 -m cython -a -3 pyanjay/*.pyx
 	python3 setup.py sdist
 
+fast: src/*.c include/*.h pyanjay/*.pyx pyanjay/*.pxd setup.py
+	python3 fast_setup.py build_ext --inplace
+	python3 -m cython -a -3 pyanjay/*.pyx
+
 clean:
 	-rm -rf dist/
 	-rm -rf build/
@@ -24,4 +28,4 @@ clean:
 	-rm -rf pyanjay/__pycache__/
 	-rm -rf wheelhouse/
 
-.PHONY: all build clean
+.PHONY: all build clean fast

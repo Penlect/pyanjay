@@ -9,7 +9,7 @@ language: python
 env:
   global:
     - CIBW_BUILD_VERBOSITY=3
-    - CIBW_BEFORE_ALL_LINUX="/usr/bin/bash {project}/.travis-get-mbedtls.sh"
+    - CIBW_BEFORE_ALL_LINUX="/bin/bash {project}/.travis-get-mbedtls.sh"
     - CIBW_BEFORE_ALL_MACOS="brew install mbedtls zlib"
     # - CIBW_BEFORE_ALL_WINDOWS=""
     - CIBW_TEST_COMMAND="python -m unittest discover -v {project}/test"
@@ -29,9 +29,9 @@ jobs:
     # perform a linux S390X build
     - services: docker
       arch: s390x
-    # and a mac build
-    - os: osx
-      language: shell
+    # # and a mac build
+    # - os: osx
+    #   language: shell
     # and a windows build
     # - os: windows
     #   language: shell

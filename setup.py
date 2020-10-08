@@ -1,6 +1,7 @@
 """pyanjay build script"""
 
 import os
+import pathlib
 from setuptools import setup, Extension, find_packages
 
 with open('README.rst') as readme_file:
@@ -74,8 +75,9 @@ setup(
     keywords='lwm2m anjay',
     url=__url__,
     ext_modules=ext_modules,
-    packages=find_packages(),
+    packages=find_packages(exclude=["test"]),
     include_package_data=True,
+    zip_safe=False,
     setup_requires=[
         'setuptools>=18.0',
         'cython'

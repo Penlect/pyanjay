@@ -11,6 +11,8 @@ cimport pyanjay.dm
 
 LOG = logging.getLogger(__name__)
 
+# Set the anjay log handler to a Python logger
+
 cdef extern from "avsystem/commons/avs_log.h":
     ctypedef enum avs_log_level_t:
         AVS_LOG_TRACE,
@@ -31,6 +33,8 @@ cdef extern from "avsystem/commons/avs_log.h":
 cdef void python_log_handler(avs_log_level_t level,
               const char *module,
               const char *message):
+    if level == avs_log_level_t.AVS_LOG_QUIET:
+        return
     log = logging.getLogger(f'anjay.{module.decode()}')
     pylevel = log.debug
     if level == avs_log_level_t.AVS_LOG_INFO:
@@ -39,8 +43,6 @@ cdef void python_log_handler(avs_log_level_t level,
         pylevel = log.warning
     elif level == avs_log_level_t.AVS_LOG_ERROR:
         pylevel = log.error
-    elif level == avs_log_level_t.AVS_LOG_QUIET:
-        return
     pylevel(message.decode())
 
 
@@ -81,7 +83,7 @@ cdef class Anjay:
         cfg.use_connection_id = False
         cfg.default_tls_ciphersuites = default_tls_ciphersuites
         cfg.prng_ctx = NULL
-        
+
         self.anjay = anjay_new(&cfg)
         if not self.anjay:
             raise RuntimeError('Could not create Anjay object')
@@ -144,18 +146,59 @@ cdef class Anjay:
                 raise Exception('Failed to add security object instance')
             self.objects[0] = True
 
-    def register_server_object(self):
+    def register_server_object(  # Todo: More sanity checks and verification
+            self, short_server_id=1, lifetime=60,
+            default_min_period=None, default_max_period=None,
+            disable_timeout=None, binding='U', notification_storing=False
+    ) -> int:
+        """Add Server Object instance and return created instance id.
+
+        :param short_server_id: Used as link to associate server Object
+            Instance, defaults to 1. Range: 1-65535.
+        :param lifetime: Specify the lifetime of the registration in
+            seconds, defaults to 60 seconds.
+        :param default_min_period: The default value the LwM2M Client
+            should use for the Minimum Period of an Observation in the
+            absence of pmin attribute. Seconds. Disabled by default
+            (None).
+        :param default_max_period: The default value the LwM2M Client
+            should use for the Maximum Period of an Observation in the
+            absence of pmin attribute. Seconds. Disabled by default
+            (None).
+        :param disable_timeout: A period in seconds to disable the
+            Server. After this period, the LwM2M Client MUST perform
+            registration process to the Server. Disabled by default
+            (None).
+        :param binding: This Resource defines the transport binding
+            configured for the LwM2M Client.
+        :param notification_storing: Whether the client should save
+            notifications while `disable_timeout` is active or not.
+            Defaults to False.
+
+        :return: Instance id of server object.
+        :rtype: int
+        """
         LOG.debug('Register server object')
         if anjay_server_object_install(self.anjay):
             raise Exception('Failed to install server object')
         cdef anjay_server_instance_t srv
-        srv.ssid = 1
-        srv.lifetime = 60
-        srv.default_min_period = -1
-        srv.default_max_period = -1
-        srv.disable_timeout = -1
-        srv.binding = "U"
-        srv.notification_storing = False
+        if not (0 < short_server_id < 65536):
+            raise ValueError('Bad short server id: {short_server_id}')
+        srv.ssid = short_server_id
+        srv.lifetime = lifetime
+        if default_min_period is None:
+            default_min_period = -1
+        srv.default_min_period = default_min_period
+        if default_max_period is None:
+            default_max_period = -1
+        srv.default_max_period = default_max_period
+        if disable_timeout is None:
+            disable_timeout = -1
+        srv.disable_timeout = disable_timeout
+        # Safe because anjay makes a deep copy all fields.
+        binding_bytes = binding.encode()
+        srv.binding = binding_bytes
+        srv.notification_storing = notification_storing
         cdef anjay_iid_t server_instance_id = ANJAY_ID_INVALID
         with self.objects_lock:
             if 1 in self.objects:

@@ -5,6 +5,7 @@ import argparse
 import logging
 import threading
 import time
+import pkg_resources
 
 # Package
 from pyanjay.client import run_client
@@ -29,6 +30,9 @@ root.setLevel(args.log_level)
 logger_anjay = logging.getLogger('anjay')
 logger_anjay.setLevel(args.log_level)
 
+entry_points = pkg_resources.iter_entry_points(group='pyanjay.objects')
+for ep in entry_points:
+    print(ep)
 
 def main(args):
     e = threading.Event()

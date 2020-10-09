@@ -47,15 +47,17 @@ anjaylibs = [
 ]
 
 ext_modules = [
+    # Anjay config/setup and client loop.
     Extension(
         'pyanjay.anjay',
         sources=c_files + ['pyanjay/anjay.pyx'],
         include_dirs=include_dirs,
         libraries=anjaylibs,
     ),
+    # Data object.
     Extension(
-        'pyanjay.dm',
-        sources= c_files + ['pyanjay/dm.pyx'],
+        'pyanjay._dm',
+        sources=c_files + ['pyanjay/_dm.pyx'],
         include_dirs=include_dirs,
         libraries=anjaylibs,
     )

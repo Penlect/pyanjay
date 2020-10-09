@@ -3,7 +3,8 @@ import logging
 import sys
 
 from pyanjay.anjay import Anjay
-from pyanjay.dm import DM
+from pyanjay._dm import DM
+from pyanjay.dm import *
 
 
 FMT_PYANJAY = \
@@ -25,11 +26,30 @@ logger_anjay.propagate = False
 logger_anjay.addHandler(handler)
 
 
-from pyanjay.data import *
-
-
 class PyAnjay(Anjay):
     pass
+
+
+@ID(4)
+class Reboot(E):
+    pass
+
+@ID(15)
+class Timezone(RW):
+    pass
+
+@ID(16)
+class SupportedBindingAndModes(R):
+    pass
+
+
+@ID(3)
+class Device(ObjectDef):
+
+    reboot = Reboot(None)
+    timezone = Timezone('FooBar')
+    supported_binding_and_modes = SupportedBindingAndModes('U')
+
 
 def run_client(ep, stop_event):
     a = PyAnjay(ep)

@@ -105,24 +105,3 @@ class ID:
         else:
             raise TypeError(f'Can\'t assign ID to {entity}')
         return entity
-
-
-@ID(4)
-class Reboot(E):
-    pass
-
-@ID(15)
-class Timezone(RW):
-    pass
-
-@ID(16)
-class SupportedBindingAndModes(R):
-    pass
-
-
-@ID(3)
-class Device(ObjectDef):
-
-    reboot = Reboot(None)
-    timezone = Timezone('FooBar')
-    supported_binding_and_modes = SupportedBindingAndModes('U')

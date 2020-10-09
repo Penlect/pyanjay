@@ -7,7 +7,7 @@ import logging
 from cpython.exc cimport PyErr_CheckSignals
 
 # Package
-cimport pyanjay.dm
+cimport pyanjay._dm
 
 LOG = logging.getLogger(__name__)
 
@@ -99,10 +99,10 @@ cdef class Anjay:
         # Add instance to lookup mapping in data model
         cdef void *p = <void*>self.anjay
         cdef long i = <long>p
-        stored_anjay = pyanjay.dm.anjay_lookup.get(i)
+        stored_anjay = pyanjay._dm.anjay_lookup.get(i)
         if isinstance(stored_anjay, self.__class__) and stored_anjay is not self:
             raise Exception(f'Different Anjay instances stored at {i}')
-        pyanjay.dm.anjay_lookup[i] = self
+        pyanjay._dm.anjay_lookup[i] = self
 
         self.stop_event = threading.Event()
         self.run_lock = threading.Lock()
@@ -138,13 +138,14 @@ cdef class Anjay:
         sec.sms_secret_key_size = 0
         sec.server_sms_number = NULL
 
+        security_object_id = 0
         cdef anjay_iid_t security_instance_id = ANJAY_ID_INVALID
         with self.objects_lock:
-            if 0 in self.objects:
+            if security_object_id in self.objects:
                 raise Exception(f'Security object already registered')
             if anjay_security_object_add_instance(self.anjay, &sec, &security_instance_id):
                 raise Exception('Failed to add security object instance')
-            self.objects[0] = True
+            self.objects[security_object_id] = True
 
     def register_server_object(  # Todo: More sanity checks and verification
             self, short_server_id=1, lifetime=60,
@@ -195,26 +196,27 @@ cdef class Anjay:
         if disable_timeout is None:
             disable_timeout = -1
         srv.disable_timeout = disable_timeout
-        # Safe because anjay makes a deep copy all fields.
+        # Safe because anjay makes a deep copy of all fields.
         binding_bytes = binding.encode()
         srv.binding = binding_bytes
         srv.notification_storing = notification_storing
+        server_object_id = 1
         cdef anjay_iid_t server_instance_id = ANJAY_ID_INVALID
         with self.objects_lock:
-            if 1 in self.objects:
+            if server_object_id in self.objects:
                 raise Exception(f'Server object already registered')
             if anjay_server_object_add_instance(self.anjay, &srv, &server_instance_id):
                 raise Exception('Failed to add server object instance')
-            self.objects[1] = True
+            self.objects[server_object_id] = True
 
     def register(self, objectdef, create_inst=True):
         LOG.debug('Regester %r ...', objectdef)
-        cdef pyanjay.dm.DM dm
+        cdef pyanjay._dm.DM dm
         with self.objects_lock:
             if objectdef.oid in self.objects:
                 raise Exception(f'Object with id {objectdef.oid} already registered')
-            dm = pyanjay.dm.DM(objectdef)
-            if pyanjay.dm.anjay_register_object(self.anjay, &dm.objdef):
+            dm = pyanjay._dm.DM(objectdef)
+            if pyanjay._dm.anjay_register_object(self.anjay, &dm.objdef):
                 raise Exception('Failed to register object', objectdef)
             self.objects[objectdef.oid] = dm
         LOG.debug('Registration done: %r', dm)
@@ -226,14 +228,14 @@ cdef class Anjay:
 
     def __getitem__(self, oid):
         with self.objects_lock:
-            return <pyanjay.dm.DM?>self.objects[oid]
+            return <pyanjay._dm.DM?>self.objects[oid]
 
     def unregister(self, oid):
         LOG.debug('Unregester %r ...', oid)
-        cdef pyanjay.dm.DM dm
+        cdef pyanjay._dm.DM dm
         with self.objects_lock:
             dm = self.objects[oid]
-            if pyanjay.dm.anjay_unregister_object(self.anjay, &dm.objdef):
+            if pyanjay._dm.anjay_unregister_object(self.anjay, &dm.objdef):
                 raise Exception('Failed to unregister object', dm)
             del self.objects[oid]
         LOG.debug('Unregistration done: %r', dm)

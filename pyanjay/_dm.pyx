@@ -8,7 +8,7 @@ from libc.stdint cimport (
 from libc.string cimport strcpy
 from cpython.mem cimport PyMem_Malloc, PyMem_Free
 
-from pyanjay.data import R, W, RW, E
+from pyanjay.dm import R, W, RW, E
 
 LOG = logging.getLogger('pyanjay.datamodel')
 
@@ -36,7 +36,7 @@ cdef extern from "stdbool.h":
 
 cdef class DM:
 
-    def __cinit__(self, factory, version=None):
+    def __cinit__(self, factory):
         self.objdef = <anjay_dm_object_def_t *> PyMem_Malloc(sizeof(anjay_dm_object_def_t))
         if not self.objdef:
             raise MemoryError('Object definition')

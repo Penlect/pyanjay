@@ -53,8 +53,8 @@ ext_modules = [
         extra_objects=anjay_static,
     ),
     Extension(
-        'pyanjay.dm',
-        sources=['pyanjay/dm.pyx'],
+        'pyanjay._dm',
+        sources=['pyanjay/_dm.pyx'],
         library_dirs=['/usr/lib/x86_64-linux-gnu/'],
         libraries=anjaylibs,
         include_dirs=['include', '/usr/local/include/'],

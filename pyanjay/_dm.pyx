@@ -118,9 +118,23 @@ cdef class DM:
             return {iid: self.instances[iid]
                     for iid in sorted(self.instances)}
 
-    def __getitem__(self, iid):
-        with self.instances_lock:
-            return self.instances[iid]
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            # Instance ID
+            with self.instances_lock:
+                return self.instances[key]
+        if isinstance(key, str):
+            # Assume path: /iid/rid
+            parts = key.split('/', maxsplit=1)
+            try:
+                iid = int(parts[0])
+            except (ValueError, TypeError):
+                pass
+            else:
+                if len(parts) > 1:
+                    return self[iid][parts[1]]
+                return self[iid]
+        raise KeyError(KeyError)
 
     def remove_instance(self, key):
         LOG.debug('Removing instance %r', key)
@@ -147,6 +161,14 @@ cdef class DM:
             return False
         else:
             return True
+
+    def __iter__(self):
+        return iter(self.get_instances().values())
+
+    def walk(self):
+        for inst in self:
+            for res in inst:
+                yield (inst, res)
 
     @staticmethod
     cdef object fetch(anjay_t *anjay=NULL,

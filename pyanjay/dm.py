@@ -14,7 +14,7 @@ class Resource:
         """Initialization of Resource"""
         self.present = present
         self.value = value
-        self.changed = False
+        self.changed = False  # TODO: NOT SAFE
         self.name = ''
         self.lock = threading.Lock()
 
@@ -89,7 +89,11 @@ class ObjectDef: # ABC Mapping ?
         return f'{self.__class__.__name__}<{self.oid}/{self.iid}>{res}'
 
     def __getitem__(self, rid):
+        rid = int(rid)
         return self.resources[rid]
+
+    def __iter__(self):
+        return iter(self.resources.values())
 
     def reset(self):
         pass

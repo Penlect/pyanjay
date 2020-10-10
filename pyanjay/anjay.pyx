@@ -245,13 +245,27 @@ cdef class Anjay:
 
     def __getitem__(self, key):
         if isinstance(key, int):
+            # Object ID
             with self.objects_lock:
                 return <pyanjay._dm.DM?>self.objects[key]
+        elif isinstance(key, str):
+            # Assume path: /oid/iid/rid
+            parts = key.split('/', maxsplit=1)
+            try:
+                iid = int(parts[0])
+            except (ValueError, TypeError):
+                return KeyError(key)
+            else:
+                if len(parts) > 1:
+                    return self[iid][parts[1]]
+                return self[iid]
+        # Assume subclass of ObjectDef
         for _, dm in self.get_registered_objects().items():
             if not isinstance(dm, pyanjay._dm.DM):
                 continue
-            if issubclass(key, dm.factory):
+            if issubclass(key, (<pyanjay._dm.DM?>dm).factory):
                 return dm
+        raise KeyError(key)
 
     def unregister(self, oid):
         LOG.debug('Unregester %r ...', oid)
@@ -281,6 +295,16 @@ cdef class Anjay:
         else:
             return True
 
+    def __iter__(self):
+        return iter([obj for obj in self.get_registered_objects().values()
+                    if isinstance(obj, pyanjay._dm.DM)])
+
+    def walk(self):
+        for obj in self:
+            for inst in obj:
+                for res in inst:
+                    yield (obj, inst, res)
+
     def stop(self):
         self.stop_event.set()
 
@@ -291,9 +315,7 @@ cdef class Anjay:
             if stop_event is None:
                 stop_event = self.stop_event()
             stop_event.clear()
-            for obj in self.get_registered_objects().values():
-                if not isinstance(obj, pyanjay._dm.DM):
-                    continue
+            for obj in self:
                 self.known_iids[obj.oid] = set(obj.get_instances())
             while not stop_event.is_set():
                 PyErr_CheckSignals()
@@ -307,33 +329,31 @@ cdef class Anjay:
 
     cdef _notify_instances_changed(self):
         """Notify one or more Object Instances were created/removed"""
-        for obj in self.get_registered_objects().values():
-            if not isinstance(obj, pyanjay._dm.DM):
-                continue
+        for obj in self:
             prev_iids = self.known_iids.get(obj.oid, set())
             iids = set(obj.get_instances())
-            for i in iids ^ prev_iids:
-                LOG.info('Notify instance changed: %d', i)
-                anjay_notify_instances_changed(self.anjay, i)
+            for i in iids - prev_iids:
+                LOG.info('Notify instance changed (created): %d', i)
+                if anjay_notify_instances_changed(self.anjay, i):
+                    raise Exception(f'Failed to notify instance created {i}')
+            for i in prev_iids - iids:
+                LOG.info('Notify instance changed (deleted): %d', i)
+                if anjay_notify_instances_changed(self.anjay, i):
+                    raise Exception(f'Failed to notify instance deleted {i}')
             self.known_iids[obj.oid] = iids
 
     cdef _notify_changed(self):
-        """Notify changed resources (W/RW and numeric)"""
-        changed = list()
-        for obj in self.get_registered_objects().values():
-            if not isinstance(obj, pyanjay._dm.DM):
-                continue
-            instances = obj.get_instances().values()
-            for inst in instances:
-                for res in inst.resources.values():
-                    if isinstance(res, (W, RW)) and \
-                            isinstance(res.value, (int, float)) and \
-                            getattr(res, 'changed', False):
-                        res.changed = False
-                        changed.append((obj, inst, res))
-        for obj, inst, res in changed:
-            LOG.debug('Notify resource changed: %r', res)
-            if anjay_notify_changed(
-                    self.anjay, obj.oid, inst.iid, res.rid):
-                raise Exception('Failed to notify changed on %r', res)
+        """Notify changed resources.
+
+        This only applies to writable numerical resources.
+        """
+        for obj, inst, res in self.walk():
+            if isinstance(res, (W, RW)) and \
+                    isinstance(res.value, (int, float)) and \
+                    getattr(res, 'changed', False):
+                res.changed = False
+                LOG.debug('Notify resource changed: %r', res)
+                if anjay_notify_changed(
+                        self.anjay, obj.oid, inst.iid, res.rid):
+                    raise Exception('Failed to notify changed on %r', res)
 

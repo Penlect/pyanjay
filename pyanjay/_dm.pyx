@@ -76,6 +76,7 @@ cdef class DM:
 
     def __init__(self, factory):
         self.instances[0] = factory()
+        self.instances[0].iid = 0
         LOG.debug('init done')
 
     @staticmethod
@@ -227,7 +228,8 @@ cdef class DM:
         except Exception:
             LOG.exception('Failed to get value of resource %r', res)
             return ErrInternal.COAP_STATUS
-        LOG.debug('resource_read %r -> %r', res, value)
+        LOG.debug('resource_read %r -> %r (%r)', res, value,
+                  value.__class__.__name__)
         if isinstance(value, (bytes, bytearray)):
             return anjay_ret_string(ctx, value)
         if isinstance(value, str):
@@ -325,5 +327,9 @@ cdef class DM:
             _, self, inst, res = DM.fetch(anjay, obj_ptr, iid, rid)
         except AnjayErrorWithCoapStatus as error:
             return error.COAP_STATUS
-        LOG.debug('resource_reset %r', res) # TODO
+        try:
+            res.reset()
+        except Exception:
+            LOG.exception('Failed to reset resource %r', res)
+            return ErrInternal.COAP_STATUS
         return 0

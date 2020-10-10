@@ -1,4 +1,5 @@
 import functools
+import threading
 
 
 class Resource:
@@ -9,13 +10,18 @@ class Resource:
         """Initialization of Resource"""
         self.present = present
         self.value = value
+        self.changed = False
         self.name = ''
+        self.lock = threading.Lock()
 
     def __get__(self, instance, owner=None):
         return self.value
 
-    def __set__(self, instance, value):
-        self.value = value
+    def __set__(self, instance, value, notify=True):
+        with self.lock:
+            if notify and self.value != value:
+                self.changed = True
+            self.value = value
 
     def __set_name__(self, owner, name):
         self.name = name

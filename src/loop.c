@@ -47,8 +47,5 @@ int loop_iteration(anjay_t *anjay) {
 	    ++socket_id;
 	}
     }
-
-    // Finally run the scheduler
-    anjay_sched_run(anjay);
     return 0;
 }

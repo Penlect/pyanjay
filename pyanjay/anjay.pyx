@@ -8,6 +8,7 @@ from cpython.exc cimport PyErr_CheckSignals
 
 # Package
 cimport pyanjay._dm
+from pyanjay.dm import W, RW
 
 LOG = logging.getLogger(__name__)
 
@@ -90,6 +91,7 @@ cdef class Anjay:
 
         self.objects_lock = threading.Lock()
         self.objects = dict()
+        self.known_iids = dict()
 
     def __dealloc__(self):
         if self.anjay != NULL:
@@ -268,9 +270,51 @@ cdef class Anjay:
             if stop_event is None:
                 stop_event = self.stop_event()
             stop_event.clear()
+            with self.objects_lock:
+                for obj in self.objects.values():
+                    if not isinstance(obj, pyanjay._dm.DM):
+                        continue
+                    self.known_iids[obj.oid] = set(obj.instances)
             while not stop_event.is_set():
                 PyErr_CheckSignals()
                 loop_iteration(self.anjay)
+                self._notify_instances_changed()
+                self._notify_changed()
+                anjay_sched_run(self.anjay)
         else:
             raise RuntimeError('Already running in another thread')
         LOG.debug('Client loop stopped')
+
+    cdef _notify_instances_changed(self):
+        """Notify one or more Object Instances were created/removed"""
+        with self.objects_lock:
+            for obj in self.objects.values():
+                if not isinstance(obj, pyanjay._dm.DM):
+                    continue
+                prev_iids = self.known_iids[obj.oid]
+                iids = set(obj.instances)
+                for i in iids ^ prev_iids:
+                    LOG.info('Notify instance changed: %d', i)
+                    anjay_notify_instances_changed(self.anjay, i)
+                self.known_iids[obj.oid] = iids
+
+    cdef _notify_changed(self):
+        """Notify changed resources (W/RW and numeric)"""
+        changed = list()
+        with self.objects_lock:
+            for obj in self.objects.values():
+                if not isinstance(obj, pyanjay._dm.DM):
+                    continue
+                for inst in obj.instances.values():
+                    for res in inst.resources.values():
+                        if isinstance(res, (W, RW)) and \
+                                isinstance(res.value, (int, float)) and \
+                                getattr(res, 'changed', False):
+                            res.changed = False
+                            changed.append((obj, inst, res))
+        for obj, inst, res in changed:
+            LOG.debug('Notify resource changed: %r', res)
+            if anjay_notify_changed(
+                    self.anjay, obj.oid, inst.iid, res.rid):
+                raise Exception('Failed to notify changed on %r', res)
+

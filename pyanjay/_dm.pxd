@@ -260,7 +260,7 @@ cdef class DM:
 
     cdef object factory
     cdef object instances_lock
-    cdef dict instances
+    cdef public dict instances
 
     cdef anjay_dm_object_def_t *objdef
 

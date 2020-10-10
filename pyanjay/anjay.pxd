@@ -83,6 +83,13 @@ cdef extern from "anjay/anjay.h":
     cdef anjay_t *anjay_new(const anjay_configuration_t *config)
     cdef void anjay_delete(anjay_t *anjay)
 
+    cdef void anjay_sched_run(anjay_t *anjay)
+    cdef int anjay_notify_instances_changed(anjay_t *anjay, anjay_oid_t oid)
+    cdef int anjay_notify_changed(anjay_t *anjay,
+                                  anjay_oid_t oid,
+                                  anjay_iid_t iid,
+                                  anjay_rid_t rid)
+
 
 cdef extern from "anjay/attr_storage.h":
     int anjay_attr_storage_install(anjay_t *anjay)
@@ -150,4 +157,7 @@ cdef class Anjay:
     cdef dict __dict__
     cdef object objects_lock
     cdef dict objects
+    cdef dict known_iids
     cdef anjay_t *anjay
+    cdef _notify_instances_changed(self)
+    cdef _notify_changed(self)

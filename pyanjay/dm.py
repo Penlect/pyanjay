@@ -1,6 +1,10 @@
 import functools
 import threading
 
+# Todo: Create: The LwM2M Client MUST ignore optional resources it
+# does not support in the payload. If the LwM2M Client supports
+# optional resources not present in the payload, it MUST NOT
+# instantiate these optional resources.
 
 class Resource:
 
@@ -74,6 +78,7 @@ class ObjectDef: # ABC Mapping ?
 
     def __init__(self):
         """Initialization of ObjectDef"""
+        self.iid = None
         self.resources = dict()
         for item in vars(self.__class__).values():
             if isinstance(item, (R, W, RW, E)):
@@ -81,7 +86,7 @@ class ObjectDef: # ABC Mapping ?
 
     def __repr__(self):
         res = [v for k, v in sorted(self.resources.items())]
-        return f'{self.__class__.__name__}<{self.oid}>{res}'
+        return f'{self.__class__.__name__}<{self.oid}/{self.iid}>{res}'
 
     def __getitem__(self, rid):
         return self.resources[rid]

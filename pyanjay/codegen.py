@@ -44,7 +44,7 @@ ID: {{ obj.oid }}, URN: {{ obj.urn }}, {{ obj.mandatory_str }}, {{ obj.multiple_
 {{ obj.description }}
 \"\"\"
 
-import pyanjay
+from pyanjay.dm import *
 
 {% for res in obj.resources %}
 @ID({{res.rid}})
@@ -402,6 +402,9 @@ if __name__ == '__main__':
         '-o', '--output', default='/dev/stdout',
         help='Output filename or output directory. (default: stdout)')
     parser.add_argument(
+        '-f', '--force', action='store_true',
+        help='Overwrite exiting output files.')
+    parser.add_argument(
         '-l', '--list',
         help='List resources and their names only.', action='store_true')
     parser.add_argument(
@@ -410,10 +413,11 @@ if __name__ == '__main__':
              'If the resource does not exist it is silently ignored.')
 
     args = parser.parse_args()
+    mode = 'w' if args.force else 'x'
     output_is_dir = os.path.isdir(args.output)
+    output_is_stdout = not args.output
     inputs = set(args.input)
     input_is_stdin = not inputs
-    output_is_stdout = not args.output
     if input_is_stdin:
         args.input = sys.stdin
     if output_is_stdout:
@@ -461,9 +465,9 @@ if __name__ == '__main__':
             filename = args.output
         if not output_is_stdout:
             print(filename)
-        with open(filename, 'w') as f:
+        with open(filename, mode) as f:
             print(boilerplate, file=f)
     if output_is_dir:
         content = generate_init_py(objects)
-        with open(os.path.join(args.output, '__init__.py'), 'x') as f:
+        with open(os.path.join(args.output, '__init__.py'), mode) as f:
             print(content, file=f)

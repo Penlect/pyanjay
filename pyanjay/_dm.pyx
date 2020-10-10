@@ -15,6 +15,9 @@ LOG = logging.getLogger('pyanjay.datamodel')
 class AnjayErrorWithCoapStatus(Exception):
     pass
 
+class ErrBadRequest(AnjayErrorWithCoapStatus):
+    COAP_STATUS = ANJAY_ERR_BAD_REQUEST
+
 class ErrMethodNotAllowed(AnjayErrorWithCoapStatus):
     COAP_STATUS = ANJAY_ERR_METHOD_NOT_ALLOWED
 
@@ -47,8 +50,8 @@ cdef class DM:
 
         self.objdef.handlers.list_instances = self.list_instances
         self.objdef.handlers.instance_reset = self.instance_reset
-        self.objdef.handlers.instance_create = NULL
-        self.objdef.handlers.instance_remove = NULL
+        self.objdef.handlers.instance_create = self.instance_create
+        self.objdef.handlers.instance_remove = self.instance_remove
         self.objdef.handlers.instance_read_default_attrs = NULL
         self.objdef.handlers.instance_write_default_attrs = NULL
 
@@ -75,9 +78,75 @@ cdef class DM:
             PyMem_Free(self.objdef)
 
     def __init__(self, factory):
-        self.instances[0] = factory()
-        self.instances[0].iid = 0
         LOG.debug('init done')
+
+    @property
+    def oid(self):
+        return self.objdef.oid
+
+    @property
+    def version(self):
+        if self.objdef.version == NULL:
+            return None
+        return self.objdef.version
+
+    def create_instance(self, iid=None):
+        single = not getattr(self.factory, 'multiple', True)
+        instance = self.factory()
+        seen = set()
+        if iid is None:
+            candidates = range(2**16)
+        else:
+            candidates = [iid]
+        with self.instances_lock:
+            for i in candidates:
+                seen.add(i)
+                if len(seen) > 1 and single:
+                    # Todo: what coap code?
+                    raise Exception('Multiple instances not allowed.')
+                if i not in self.instances:
+                    self.instances[i] = instance
+                    instance.iid = i
+                    break
+            else:
+                raise ErrBadRequest('Failed to find free iid')
+        LOG.debug('Created instance %r', instance)
+        return instance
+
+    def get_instances(self):
+        with self.instances_lock:
+            return {iid: self.instances[iid]
+                    for iid in sorted(self.instances)}
+
+    def __getitem__(self, iid):
+        with self.instances_lock:
+            return self.instances[iid]
+
+    def remove_instance(self, key):
+        LOG.debug('Removing instance %r', key)
+        iid = getattr(key, 'iid', key)
+        with self.instances_lock:
+            try:
+                return self.instances.pop(iid)
+            except KeyError as error:
+                raise ErrNotFound from error
+
+    def __delitem__(self, iid):
+        self.remove_instance(iid)
+
+    def __repr__(self):
+        return f'{self.__class__.__name__}({self.factory!r})'
+
+    def __len__(self):
+        return len(self.get_instances())
+
+    def __contains__(self, iid):
+        try:
+            self.instances[iid]
+        except KeyError:
+            return False
+        else:
+            return True
 
     @staticmethod
     cdef object fetch(anjay_t *anjay=NULL,
@@ -134,19 +203,6 @@ cdef class DM:
             return ErrNotFound.COAP_STATUS
         return (py_anjay, self, inst, res, value)
 
-    def __repr__(self):
-        return f'{self.__class__.__name__}({self.factory!r})'
-
-    @property
-    def oid(self):
-        return self.objdef.oid
-
-    @property
-    def version(self):
-        if self.objdef.version == NULL:
-            return None
-        return self.objdef.version
-
     @staticmethod
     cdef int list_instances(anjay_t *anjay,
                             const anjay_dm_object_def_t *const *obj_ptr,
@@ -176,6 +232,65 @@ cdef class DM:
             inst.reset()
         except Exception:
             LOG.exception('Failed to reset instance %r', inst)
+            return ErrInternal.COAP_STATUS
+        return 0
+
+    @staticmethod
+    cdef int instance_create(anjay_t *anjay,
+                             const anjay_dm_object_def_t *const *obj_ptr,
+                             anjay_iid_t iid):
+        """Create object instance
+
+        The LwM2M Client MUST ignore optional resources it does not
+        support in the payload. If the LwM2M Client supports optional
+        resources not present in the payload, it MUST NOT instantiate
+        these optional resources.
+
+        CoAP codes
+        ----------
+        2.01 Created “Create” operation is completed successfully.
+        4.00 Bad Request Target (i.e., Object) already exists Mandatory.
+             Resources are not specified Content Format is not specified.
+        4.01 Unauthorized Access Right Permission Denied.
+        4.04 Not Found URI of “Create” operation is not found.
+        4.05 Method Not Allowed Target is not allowed for “Create” operation.
+        4.15 Unsupported content format The specified format is not supported.
+        """
+        LOG.debug('instance_create handler called')
+        try:
+            _, self = DM.fetch(anjay, obj_ptr)
+        except AnjayErrorWithCoapStatus as error:
+            return error.COAP_STATUS
+        try:
+            self.create_instance(iid)
+        except Exception:
+            LOG.exception('Failed to create instance')
+            return ErrInternal.COAP_STATUS
+        return 0
+
+    @staticmethod
+    cdef int instance_remove(anjay_t *anjay,
+                             const anjay_dm_object_def_t *const *obj_ptr,
+                             anjay_iid_t iid):
+        """Delete object instance
+
+        CoAP codes
+        ----------
+        2.02 Deleted “Delete” operation is completed successfully.
+        4.00 Bad Request Undetermined error occurred.
+        4.01 Unauthorized Access Right Permission Denied.
+        4.04 Not Found URI of “Delete” operation is not found.
+        4.05 Method Not Allowed Target is not allowed for “Delete” operation.
+        """
+        LOG.debug('instance_remove handler called')
+        try:
+            _, self = DM.fetch(anjay, obj_ptr)
+        except AnjayErrorWithCoapStatus as error:
+            return error.COAP_STATUS
+        try:
+            self.remove_instance(iid)
+        except Exception:
+            LOG.exception('Failed to remove instance')
             return ErrInternal.COAP_STATUS
         return 0
 
@@ -296,7 +411,7 @@ cdef class DM:
             value = value.decode()
         LOG.debug('resource_write %r <- %r', res, value)
         try:
-            setattr(inst, res.name, value)
+            res.__set__(inst, value, notify=False)
         except Exception:
             LOG.exception('Failed to set value %r to resource %r', value, res)
             return ErrInternal.COAP_STATUS

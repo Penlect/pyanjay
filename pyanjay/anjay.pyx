@@ -211,13 +211,28 @@ cdef class Anjay:
                 raise Exception('Failed to add server object instance')
             self.objects[server_object_id] = True
 
-    def register(self, objectdef, create_inst=True):
+    def register(self, objectdef, number_of_instances=1):
         LOG.debug('Regester %r ...', objectdef)
         cdef pyanjay._dm.DM dm
         with self.objects_lock:
             if objectdef.oid in self.objects:
                 raise Exception(f'Object with id {objectdef.oid} already registered')
             dm = pyanjay._dm.DM(objectdef)
+            # Mandatory and Single object must have exactly one instance
+            single = not getattr(objectdef, 'multiple', True)
+            mandatory = getattr(objectdef, 'mandatory', False)
+            if single and mandatory and number_of_instances != 1:
+                raise ValueError(
+                    f'Mandatory and Single object {objectdef} must '
+                    f'have exactly one instance')
+            # If Single, most one instance is allowed.
+            if single and number_of_instances > 1:
+                raise ValueError(
+                    f'Multiple instances of {objectdef} is not allowed.')
+            # Create instances if needed
+            for _ in range(number_of_instances):
+                dm.create_instance()
+            # Register object
             if pyanjay._dm.anjay_register_object(self.anjay, &dm.objdef):
                 raise Exception('Failed to register object', objectdef)
             self.objects[objectdef.oid] = dm
@@ -228,9 +243,15 @@ cdef class Anjay:
             return {oid: self.objects[oid]
                     for oid in sorted(self.objects)}
 
-    def __getitem__(self, oid):
-        with self.objects_lock:
-            return <pyanjay._dm.DM?>self.objects[oid]
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            with self.objects_lock:
+                return <pyanjay._dm.DM?>self.objects[key]
+        for _, dm in self.get_registered_objects().items():
+            if not isinstance(dm, pyanjay._dm.DM):
+                continue
+            if issubclass(key, dm.factory):
+                return dm
 
     def unregister(self, oid):
         LOG.debug('Unregester %r ...', oid)
@@ -252,9 +273,9 @@ cdef class Anjay:
     def __len__(self):
         return len(self.get_registered_objects())
 
-    def __contains__(self, key):
+    def __contains__(self, oid):
         try:
-            self.objects[key]
+            self.objects[oid]
         except KeyError:
             return False
         else:
@@ -270,11 +291,10 @@ cdef class Anjay:
             if stop_event is None:
                 stop_event = self.stop_event()
             stop_event.clear()
-            with self.objects_lock:
-                for obj in self.objects.values():
-                    if not isinstance(obj, pyanjay._dm.DM):
-                        continue
-                    self.known_iids[obj.oid] = set(obj.instances)
+            for obj in self.get_registered_objects().values():
+                if not isinstance(obj, pyanjay._dm.DM):
+                    continue
+                self.known_iids[obj.oid] = set(obj.get_instances())
             while not stop_event.is_set():
                 PyErr_CheckSignals()
                 loop_iteration(self.anjay)
@@ -287,31 +307,30 @@ cdef class Anjay:
 
     cdef _notify_instances_changed(self):
         """Notify one or more Object Instances were created/removed"""
-        with self.objects_lock:
-            for obj in self.objects.values():
-                if not isinstance(obj, pyanjay._dm.DM):
-                    continue
-                prev_iids = self.known_iids[obj.oid]
-                iids = set(obj.instances)
-                for i in iids ^ prev_iids:
-                    LOG.info('Notify instance changed: %d', i)
-                    anjay_notify_instances_changed(self.anjay, i)
-                self.known_iids[obj.oid] = iids
+        for obj in self.get_registered_objects().values():
+            if not isinstance(obj, pyanjay._dm.DM):
+                continue
+            prev_iids = self.known_iids.get(obj.oid, set())
+            iids = set(obj.get_instances())
+            for i in iids ^ prev_iids:
+                LOG.info('Notify instance changed: %d', i)
+                anjay_notify_instances_changed(self.anjay, i)
+            self.known_iids[obj.oid] = iids
 
     cdef _notify_changed(self):
         """Notify changed resources (W/RW and numeric)"""
         changed = list()
-        with self.objects_lock:
-            for obj in self.objects.values():
-                if not isinstance(obj, pyanjay._dm.DM):
-                    continue
-                for inst in obj.instances.values():
-                    for res in inst.resources.values():
-                        if isinstance(res, (W, RW)) and \
-                                isinstance(res.value, (int, float)) and \
-                                getattr(res, 'changed', False):
-                            res.changed = False
-                            changed.append((obj, inst, res))
+        for obj in self.get_registered_objects().values():
+            if not isinstance(obj, pyanjay._dm.DM):
+                continue
+            instances = obj.get_instances().values()
+            for inst in instances:
+                for res in inst.resources.values():
+                    if isinstance(res, (W, RW)) and \
+                            isinstance(res.value, (int, float)) and \
+                            getattr(res, 'changed', False):
+                        res.changed = False
+                        changed.append((obj, inst, res))
         for obj, inst, res in changed:
             LOG.debug('Notify resource changed: %r', res)
             if anjay_notify_changed(

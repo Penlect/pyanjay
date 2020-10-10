@@ -13,8 +13,9 @@ FMT_PYANJAY = \
 formatter = logging.Formatter(fmt=FMT_PYANJAY)
 handler = logging.StreamHandler(stream=sys.stderr)
 handler.setFormatter(formatter)
-root = logging.getLogger()
-root.addHandler(handler)
+logger_pyanjay = logging.getLogger('pyanjay')
+logger_pyanjay.propagate = False
+logger_pyanjay.addHandler(handler)
 
 FMT_ANJAY = \
     '%(asctime)s %(threadName)s: %(module)s(%(lineno)d) %(message)s'

@@ -260,7 +260,7 @@ cdef class DM:
 
     cdef object factory
     cdef object instances_lock
-    cdef public dict instances
+    cdef dict instances
 
     cdef anjay_dm_object_def_t *objdef
 
@@ -281,14 +281,22 @@ cdef class DM:
     cdef int instance_reset(anjay_t *anjay,
                             const anjay_dm_object_def_t *const *obj_ptr,
                             anjay_iid_t iid)
+    @staticmethod
+    cdef int instance_create(anjay_t *anjay,
+                             const anjay_dm_object_def_t *const *obj_ptr,
+                             anjay_iid_t iid)
+    @staticmethod
+    cdef int instance_remove(anjay_t *anjay,
+                             const anjay_dm_object_def_t *const *obj_ptr,
+                             anjay_iid_t iid)
+
+    # Resource handlers
 
     @staticmethod
     cdef int list_resources(anjay_t *anjay,
                             const anjay_dm_object_def_t *const *obj_ptr,
                             anjay_iid_t iid,
                             anjay_dm_resource_list_ctx_t *ctx)
-
-    # Resource handlers
 
     @staticmethod
     cdef int resource_read(anjay_t *anjay,
@@ -317,3 +325,6 @@ cdef class DM:
                             const anjay_dm_object_def_t *const *obj_ptr,
                             anjay_iid_t iid,
                             anjay_rid_t rid)
+
+    # Transatction handlers
+    # Todo

@@ -243,6 +243,14 @@ cdef extern from "anjay/anjay.h":
     cdef int anjay_get_bool(anjay_input_ctx_t *ctx, cbool *out)
     cdef int anjay_get_objlnk(anjay_input_ctx_t *ctx, anjay_oid_t *out_oid, anjay_iid_t *out_iid)
 
+    cdef int anjay_execute_get_next_arg(anjay_execute_ctx_t *ctx,
+                                        int *out_arg,
+                                        cbool *out_has_value)
+    cdef int anjay_execute_get_arg_value(anjay_execute_ctx_t *ctx,
+                                         size_t *out_bytes_read,
+                                         char *out_buf,
+                                         size_t buf_size)
+    cdef int ANJAY_EXECUTE_GET_ARG_END
 
     cdef int ANJAY_ERR_BAD_REQUEST
     cdef int ANJAY_ERR_UNAUTHORIZED

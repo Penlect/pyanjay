@@ -100,8 +100,8 @@ class E(Resource):
             call = self.__call__
         return functools.partial(call, instance, owner)
 
-    def __call__(self, instance, owner=None, argument=''):
-        print(self, instance, owner, argument)
+    def __call__(self, instance, owner=None, arguments=None):
+        print(self, instance, owner, arguments)
 
 
 cdef class ObjectDef:
@@ -568,12 +568,13 @@ cdef class DM:
 
         if isinstance(res.value, str):
             value = value.decode()
-        LOG.debug('resource_write %r <- %r', res, value)
         try:
             res.__set__(inst, value, notify=False)
         except Exception:
-            LOG.exception('Failed to set value %r to resource %r', value, res)
+            LOG.exception('resource_write %r <- %r, failed.', res, value)
             return ErrInternal.COAP_STATUS
+        else:
+            LOG.debug('resource_write %r <- %r', res, value)
 
     @staticmethod
     cdef int resource_execute(anjay_t *anjay,
@@ -581,13 +582,69 @@ cdef class DM:
                               anjay_iid_t iid,
                               anjay_rid_t rid,
                               anjay_execute_ctx_t *ctx):
+        """Execute resource
+
+        Argument payloads like this example:
+
+            0,1='spam',2,5='eggs'
+
+        will be converted to a Python dictionary
+
+            {0: None, 1: b'spam', 2: None, 5: b'eggs'}
+
+        and passed to the resource callable.
+
+        CoAP codes
+        ----------
+        2.04 Changed “Execute” oeperation is completed successfully.
+        4.00 Bad Request The LwM2M Server doesn‟t understand the
+             argument in the payload.
+        4.01 Unauthorized Access Right Permission Denied.
+        4.04 Not Found URI of “Execute” operation is not found.
+        4.05 Method Not Allowed Target is not allowed for “Execute”
+             operation.
+        """
         LOG.debug('resource_execute handler called')
-        cdef DM self
         try:
-            _, self, inst, res = DM.fetch(anjay, obj_ptr, iid, rid)
+            _, _, inst, res = DM.fetch(anjay, obj_ptr, iid, rid)
         except AnjayErrorWithCoapStatus as error:
             return error.COAP_STATUS
-        LOG.debug('resource_execute %r, args=""', res) # TODO
+        arguments = dict()
+        cdef int out_arg  # Argument index
+        cdef cbool out_has_value
+        cdef size_t out_bytes_read
+        cdef char *out_buf  # Used for argument values
+        cdef size_t buf_size = 2048
+        out_buf = <char *> PyMem_Malloc(buf_size)
+        if not out_buf:
+            return ErrInternal.COAP_STATUS
+        try:
+            while True:
+                result = anjay_execute_get_next_arg(
+                    ctx, &out_arg, &out_has_value)
+                if result == ANJAY_EXECUTE_GET_ARG_END:
+                    break
+                elif result:
+                    return result  # BAD REQUEST
+                LOG.debug('resultource_execute found arg: %d', out_arg)
+                arguments[out_arg] = None
+                if out_has_value:
+                    result = anjay_execute_get_arg_value(
+                        ctx, &out_bytes_read, out_buf, buf_size)
+                    if result:
+                        return result  # BAD REQUEST
+                    arguments[out_arg] = <bytes>out_buf
+                    LOG.debug('resource_execute found arg value: %r',
+                              arguments[out_arg])
+        finally:
+            PyMem_Free(out_buf)
+        try:
+            res.__get__(inst)(arguments=arguments)
+        except Exception:
+            LOG.exception('resource_execute %r, args=%r, failed.', res, arguments)
+            return ErrInternal.COAP_STATUS
+        else:
+            LOG.debug('resource_execute %r, args=%r', res, arguments)
         return 0
 
     @staticmethod

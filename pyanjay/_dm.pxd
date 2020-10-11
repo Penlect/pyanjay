@@ -254,13 +254,26 @@ cdef extern from "anjay/anjay.h":
     cdef int ANJAY_ERR_SERVICE_UNAVAILABLE
 
 
+# cdef class Resource:
+
+#     cdef object instances_lock
+#     cdef dict instances
+
+
+cdef class ObjectDef:
+
+    cdef object resources_lock
+    cdef dict resources
+
+
 cdef dict anjay_lookup
+
 
 cdef class DM:
 
-    cdef object factory
     cdef object instances_lock
     cdef dict instances
+    cdef object factory
 
     cdef anjay_dm_object_def_t *objdef
 

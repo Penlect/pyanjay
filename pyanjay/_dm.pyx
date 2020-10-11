@@ -2,15 +2,21 @@
 # Built-in
 import threading
 import logging
+import functools
 
 from libc.stdint cimport (
     uint8_t, uint16_t, uint32_t, int32_t)
 from libc.string cimport strcpy
 from cpython.mem cimport PyMem_Malloc, PyMem_Free
 
-from pyanjay.dm import R, W, RW, E
+cdef extern from "stdbool.h":
+    ctypedef bint cbool "bool"
 
 LOG = logging.getLogger('pyanjay.datamodel')
+
+
+cdef dict anjay_lookup = dict()
+
 
 class AnjayErrorWithCoapStatus(Exception):
     pass
@@ -31,10 +37,146 @@ class ErrNotImplemented(AnjayErrorWithCoapStatus):
     COAP_STATUS = ANJAY_ERR_NOT_IMPLEMENTED
 
 
-cdef dict anjay_lookup = dict()
+class Resource:
 
-cdef extern from "stdbool.h":
-    ctypedef bint cbool "bool"
+    rid = None
+
+    # def __cinit__(self):
+    #     self.instances_lock = threading.Lock()
+    #     self.instances = dict()
+
+    def __init__(self, value, present=True):
+        """Initialization of Resource"""
+        self.present = present
+        self.value = value
+        self.changed = False  # TODO: NOT SAFE
+        self.name = ''
+        self.lock = threading.Lock()
+
+    def __get__(self, instance, owner=None):
+        return self.value
+
+    def __set__(self, instance, value, notify=True):
+        with self.lock:
+            if notify and self.value != value:
+                self.changed = True
+            self.value = value
+
+    def __set_name__(self, owner, name):
+        self.name = name
+
+    def __repr__(self):
+        return f'{self.name}<{self.rid}>'
+
+    def reset(self):
+        pass
+
+    def attributes(self):
+        pass
+
+
+class R(Resource):
+    """Read-only Resource"""
+
+    def __set__(self, instance, value):
+        raise AttributeError("can't write read-only resource")
+
+
+class W(Resource):
+    """Write-only Resource"""
+
+    def __get__(self, instance, owner=None):
+        raise AttributeError("can't read write-only resource")
+
+
+class RW(Resource):
+    """Read/Write Resource"""
+
+
+class E(Resource):
+    """Executable Resource"""
+
+    def __get__(self, instance, owner=None):
+        if callable(self.value):
+            call = self.value
+        else:
+            call = self.__call__
+        return functools.partial(call, instance, owner)
+
+    def __call__(self, instance, owner=None, argument=''):
+        print(self, instance, owner, argument)
+
+
+cdef class ObjectDef:
+
+    oid = None
+
+    def __cinit__(self):
+        self.resources_lock = threading.Lock()
+        self.resources = dict()
+
+    # def __init_subclass__(cls, **kwargs):
+    #     super().__init_subclass__(**kwargs)
+    #     for item in vars(self.__class__).values():
+    #         if isinstance(item, (R, W, RW, E)):
+    #             self.resources[item.rid] = item
+
+    def __init__(self):
+        """Initialization of ObjectDef"""
+        self.iid = None
+        for item in vars(self.__class__).values():
+            if isinstance(item, (R, W, RW, E)):
+                self.resources[item.rid] = item
+
+    def get_resources(self):
+        with self.resources_lock:
+            return {rid: self.resources[rid]
+                    for rid in sorted(self.resources)}
+
+    def __repr__(self):
+        res = list(self.get_resources())
+        return f'{self.__class__.__name__}<{self.oid}/{self.iid}>{res!r}'
+
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            # Instance ID
+            with self.resources_lock:
+                return self.resources[key]
+        if isinstance(key, str):
+            # Assume path: /iid/rid
+            parts = key.split('/', maxsplit=1)
+            try:
+                rid = int(parts[0])
+            except (ValueError, TypeError):
+                pass
+            else:
+                if len(parts) > 1:
+                    return self[rid][parts[1]]
+                return self[rid]
+        raise KeyError(KeyError)
+
+    def __iter__(self):
+        return iter(self.resources.values())
+
+    def __len__(self):
+        return len(self.get_resources())
+
+    def __contains__(self, rid):
+        try:
+            self.resources[rid]
+        except KeyError:
+            return False
+        else:
+            return True
+
+    def __iter__(self):
+        return iter(self.get_resources().values())
+
+    def reset(self):
+        pass
+
+    def attributes(self):
+        pass
 
 
 cdef class DM:
@@ -201,7 +343,7 @@ cdef class DM:
 
         # Object instance
         try:
-            inst = self.instances[iid]
+            inst = self[iid]
         except KeyError:
             LOG.exception('Failed to get instance %d of %r', iid, self)
             return ErrNotFound.COAP_STATUS
@@ -210,7 +352,7 @@ cdef class DM:
 
         # Resource
         try:
-            res = inst.resources[rid]
+            res = inst[rid]
         except KeyError:
             LOG.exception('Failed to get resource %d of %r', rid, inst)
             return ErrNotFound.COAP_STATUS
@@ -219,7 +361,7 @@ cdef class DM:
 
         # Resource instance
         try:
-            value = res.instances[riid]
+            value = res[riid]
         except KeyError:
             LOG.exception('Failed to get resource instance %d of %r', riid, res)
             return ErrNotFound.COAP_STATUS
@@ -235,10 +377,9 @@ cdef class DM:
             _, self = DM.fetch(anjay, obj_ptr)
         except AnjayErrorWithCoapStatus as error:
             return error.COAP_STATUS
-        with self.instances_lock:
-            for iid, inst in self.instances.items():
-                LOG.debug('list_instances %r', inst)
-                anjay_dm_emit(ctx, iid)
+        for iid, inst in sorted(self.get_instances().items()):
+            LOG.debug('list_instances %r', inst)
+            anjay_dm_emit(ctx, iid)
         return 0
 
     @staticmethod
@@ -328,8 +469,7 @@ cdef class DM:
             return error.COAP_STATUS
         cdef anjay_dm_resource_kind_t kind
         cdef anjay_dm_resource_presence_t presence
-        # Todo: threadsafe
-        for rid, res in inst.resources.items():
+        for rid, res in sorted(inst.get_resources().items()):
             if getattr(res, 'present', True):
                 presence = ANJAY_DM_RES_PRESENT
             else:

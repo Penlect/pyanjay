@@ -2,6 +2,9 @@
 from libc.stdint cimport (
     uint8_t, uint16_t, uint32_t, int32_t, int64_t)
 
+cdef extern from "stdbool.h":
+    ctypedef bint cbool "bool"
+
 cdef extern from "anjay/anjay.h":
         
     ctypedef struct anjay_t
@@ -231,14 +234,15 @@ cdef extern from "anjay/anjay.h":
     cdef int anjay_ret_string(anjay_output_ctx_t *ctx, const char *value)
     cdef int anjay_ret_i64(anjay_output_ctx_t *ctx, int64_t value)
     cdef int anjay_ret_double(anjay_output_ctx_t *ctx, double value)
-    cdef int anjay_ret_bool(anjay_output_ctx_t *ctx, bint value)
+    cdef int anjay_ret_bool(anjay_output_ctx_t *ctx, cbool value)
     cdef int anjay_ret_objlnk(anjay_output_ctx_t *ctx, anjay_oid_t oid, anjay_iid_t iid)
 
     cdef int anjay_get_string(anjay_input_ctx_t *ctx, char *out_buf, size_t buf_size)
     cdef int anjay_get_i64(anjay_input_ctx_t *ctx, int64_t *out)
     cdef int anjay_get_double(anjay_input_ctx_t *ctx, double *out)
-    cdef int anjay_get_bool(anjay_input_ctx_t *ctx, bint *out)
+    cdef int anjay_get_bool(anjay_input_ctx_t *ctx, cbool *out)
     cdef int anjay_get_objlnk(anjay_input_ctx_t *ctx, anjay_oid_t *out_oid, anjay_iid_t *out_iid)
+
 
     cdef int ANJAY_ERR_BAD_REQUEST
     cdef int ANJAY_ERR_UNAUTHORIZED

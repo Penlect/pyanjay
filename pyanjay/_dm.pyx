@@ -9,9 +9,6 @@ from libc.stdint cimport (
 from libc.string cimport strcpy
 from cpython.mem cimport PyMem_Malloc, PyMem_Free
 
-cdef extern from "stdbool.h":
-    ctypedef bint cbool "bool"
-
 LOG = logging.getLogger('pyanjay.datamodel')
 
 

@@ -2,6 +2,8 @@
 from libc.stdint cimport (
     uint8_t, uint16_t, uint32_t, int32_t)
 
+cdef extern from "stdbool.h":
+    ctypedef bint cbool "bool"
 
 cdef extern from "anjay/anjay.h":
 
@@ -72,11 +74,11 @@ cdef extern from "anjay/anjay.h":
         avs_net_socket_configuration_t socket_config
         const avs_coap_udp_tx_params_t *udp_tx_params
         const avs_net_dtls_handshake_timeouts_t *udp_dtls_hs_tx_params
-        bint confirmable_notifications
-        bint disable_legacy_server_initiated_bootstrap
+        cbool confirmable_notifications
+        cbool disable_legacy_server_initiated_bootstrap
         size_t stored_notification_limit
-        bint prefer_hierarchical_formats
-        bint use_connection_id
+        cbool prefer_hierarchical_formats
+        cbool use_connection_id
         avs_net_socket_tls_ciphersuites_t default_tls_ciphersuites
         avs_crypto_prng_ctx_t *prng_ctx
 
@@ -112,7 +114,7 @@ cdef extern from "anjay/security.h":
     ctypedef struct anjay_security_instance_t:
         anjay_ssid_t ssid
         const char *server_uri
-        bint bootstrap_server
+        cbool bootstrap_server
         anjay_security_mode_t security_mode
         int32_t client_holdoff_s
         int32_t bootstrap_timeout_s
@@ -142,8 +144,8 @@ cdef extern from "anjay/server.h":
         int32_t default_max_period
         int32_t disable_timeout
         const char *binding
-        bint notification_storing
-        
+        cbool notification_storing
+
     cdef:
         int anjay_server_object_install(anjay_t *anjay)
         int anjay_server_object_add_instance(anjay_t *anjay, const anjay_server_instance_t *instance, anjay_iid_t *inout_iid)

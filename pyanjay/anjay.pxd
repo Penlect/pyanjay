@@ -32,9 +32,10 @@ cdef extern from "anjay/anjay.h":
     cdef int IF_NAMESIZE
     ctypedef char avs_net_socket_interface_name_t[16]
 
-    ctypedef struct avs_net_resolved_endpoint_t: # !!!
-        uint8_t size
-        char buf[128];
+    ctypedef struct avs_net_resolved_endpoint_t:
+        pass
+        # uint8_t size
+        # char buf[128];
 
     ctypedef enum avs_net_af_t:
         AVS_NET_AF_UNSPEC,
@@ -160,6 +161,7 @@ cdef class Anjay:
     cdef object objects_lock
     cdef dict objects
     cdef dict known_iids
+    cdef bytes _interface_name
     cdef anjay_t *anjay
     cdef _notify_instances_changed(self)
     cdef _notify_changed(self)

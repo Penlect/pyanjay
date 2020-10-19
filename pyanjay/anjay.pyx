@@ -2,6 +2,7 @@
 # Built-in
 import threading
 import logging
+import enum
 
 # C
 from cpython.exc cimport PyErr_CheckSignals
@@ -50,23 +51,94 @@ cdef void python_log_handler(avs_log_level_t level,
 avs_log_set_handler(python_log_handler)
 
 
+class SecurityMode(enum.Enum):
+    PSK = 0  # Pre-Shared Key
+    RPK = 1  # Raw Public Key
+    CERTIFICATE = 2
+    NOSEC = 3
+    EST = 4  # Sertificate mode with EST
+
+
+class SmsSecurityMode(enum.Enum):
+    DTLS_PSK = 1
+    SECURE_PACKET = 2
+    NOSEC = 3
+
+
+class SocketConfig:
+
+    def __init__(self, dscp=0, priority=0, transparent=0,
+                 interface_name=b'',
+                 address_family='AF_UNSPEC', preferred_family='AF_UNSPEC',
+                 forced_mtu=0):
+        """Initialization of SocketConfig"""
+        if not (0 <= dscp <= 64):
+            raise ValueError('dscp out of range')
+        self.dscp = dscp
+        if not (0 <= priority <= 7):
+            raise ValueError('priority out of range')
+        self.priority = priority
+        transparent = int(transparent)
+        if transparent not in {0, 1}:
+            raise ValueError('Bad transparent value')
+        self.transparent = transparent
+
+        self.interface_name = interface_name
+        self.address_family = address_family
+        self.preferred_family = preferred_family
+        if forced_mtu < 0:
+            raise ValueError('Bad forced_mtu')
+        self.forced_mtu = forced_mtu
+
+
 cdef class Anjay:
 
-    def __cinit__(self, endpoint_name):
+    def __cinit__(self, endpoint_name, socket_config=None):
+        if not endpoint_name:
+            raise ValueError('Bad endpoint name')
 
-        cdef avs_net_socket_configuration_t socket_config
-        socket_config.dscp = 0
-        socket_config.priority = 0
-        socket_config.reuse_addr = False
-        socket_config.transparent = 0
-        socket_config.interface_name = ""
-        socket_config.preferred_endpoint = NULL
-        socket_config.address_family = AVS_NET_AF_UNSPEC
-        socket_config.forced_mtu = 0
-        socket_config.preferred_family = AVS_NET_AF_UNSPEC
+        # Socket configuration
+        # --------------------
+        cdef avs_net_socket_configuration_t socket_cfg
+        if socket_config is None:
+            socket_config = SocketConfig()
+        socket_cfg.dscp = socket_config.dscp
+        socket_cfg.priority = socket_config.priority
+        socket_cfg.reuse_addr = 1
+        socket_cfg.transparent = socket_config.transparent
+
+        if not isinstance(socket_config.interface_name, bytes):
+            raise TypeError('interface name must be bytes')
+        socket_cfg.interface_name = <char *>socket_config.interface_name
+        # Keep a reference
+        self._interface_name = socket_config.interface_name
+
+        socket_cfg.preferred_endpoint = NULL
+
+        if socket_config.address_family == 'AF_INET4':
+            socket_cfg.address_family = AVS_NET_AF_INET4
+        elif socket_config.address_family == 'AF_INET6':
+            socket_cfg.address_family = AVS_NET_AF_INET6
+        else:
+            socket_cfg.address_family = AVS_NET_AF_UNSPEC
+
+        if socket_config.preferred_family == 'AF_INET4':
+            socket_cfg.preferred_family = AVS_NET_AF_INET4
+        elif socket_config.preferred_family == 'AF_INET6':
+            socket_cfg.preferred_family = AVS_NET_AF_INET6
+        else:
+            socket_cfg.preferred_family = AVS_NET_AF_UNSPEC
+
+        socket_cfg.forced_mtu = socket_config.forced_mtu
+
+        # Cipher configuration
+        # --------------------
         cdef avs_net_socket_tls_ciphersuites_t default_tls_ciphersuites
         default_tls_ciphersuites.ids = NULL
         default_tls_ciphersuites.num_ids = 0
+
+        # Anjay configuration
+        # -------------------
         cdef anjay_configuration_t cfg
         cfg.endpoint_name = endpoint_name
         cfg.udp_listen_port = 0
@@ -74,7 +146,7 @@ cdef class Anjay:
         cfg.in_buffer_size = 4000
         cfg.out_buffer_size = 4000
         cfg.msg_cache_size = 4000
-        cfg.socket_config = socket_config
+        cfg.socket_config = socket_cfg
         cfg.udp_tx_params = NULL
         cfg.udp_dtls_hs_tx_params = NULL
         cfg.confirmable_notifications = False
@@ -97,7 +169,12 @@ cdef class Anjay:
         if self.anjay != NULL:
             anjay_delete(self.anjay)
 
-    def __init__(self, endpoint_name):
+    def __init__(self, endpoint_name, socket_config=None):
+        """Initialize Anjay
+
+        :param endpoint_name: Endpoint name as presented to the LwM2M
+        server.
+        """
         # Add instance to lookup mapping in data model
         cdef void *p = <void*>self.anjay
         cdef long i = <long>p
@@ -114,31 +191,76 @@ cdef class Anjay:
         if anjay_attr_storage_install(self.anjay):
             raise Exception('Failed to install attr storage')
 
-    def register_security_object(self, url='coap://localhost:5683'):
+    def register_security_object(
+            self, short_server_id=1, server_uri='coap://localhost:5683',
+            bootstrap_server=False, bootstrap_timeout=0, client_holdoff=0,
+            security_mode=SecurityMode.NOSEC,
+            public_cert_or_psk_identity: bytes = None,
+            private_cert_or_psk_key: bytes = None,
+            server_public_key: bytes = None,
+            sms_security_mode = SmsSecurityMode.NOSEC,
+            server_sms_number: str = None,
+            sms_key_parameters: bytes = None,
+            sms_secret_key: bytes = None
+    ):
         LOG.debug('Register security object')
         if anjay_security_object_install(self.anjay):
             raise Exception('Failed to install security object')
-        self.__url = url.encode()
         cdef anjay_security_instance_t sec
-        sec.ssid = 1
-        sec.server_uri = self.__url
-        sec.bootstrap_server = False
-        sec.security_mode = ANJAY_SECURITY_NOSEC
-        sec.client_holdoff_s = 0
-        sec.bootstrap_timeout_s = 0
-        sec.public_cert_or_psk_identity = NULL
-        sec.public_cert_or_psk_identity_size = 0
-        sec.private_cert_or_psk_key = NULL
-        sec.private_cert_or_psk_key_size = 0
-        sec.server_public_key = NULL
-        sec.server_public_key_size = 0
+        sec.ssid = short_server_id
+        if isinstance(server_uri, str):
+            server_uri = server_uri.encode()
+        sec.server_uri = server_uri
 
-        sec.sms_security_mode = ANJAY_SMS_SECURITY_NOSEC
-        sec.sms_key_parameters = NULL
-        sec.sms_key_parameters_size = 0
-        sec.sms_secret_key = NULL
-        sec.sms_secret_key_size = 0
-        sec.server_sms_number = NULL
+        sec.bootstrap_server = False
+        sec.client_holdoff_s = client_holdoff
+        sec.bootstrap_timeout_s = bootstrap_timeout
+        sec.security_mode = security_mode.value
+
+        if public_cert_or_psk_identity:
+            sec.public_cert_or_psk_identity = public_cert_or_psk_identity
+            sec.public_cert_or_psk_identity_size = \
+                len(public_cert_or_psk_identity)
+        else:
+            sec.public_cert_or_psk_identity = NULL
+            sec.public_cert_or_psk_identity_size = 0
+
+        if private_cert_or_psk_key:
+            sec.private_cert_or_psk_key = private_cert_or_psk_key
+            sec.private_cert_or_psk_key_size = len(private_cert_or_psk_key)
+        else:
+            sec.private_cert_or_psk_key = NULL
+            sec.private_cert_or_psk_key_size = 0
+
+        if server_public_key:
+            sec.server_public_key = server_public_key
+            sec.server_public_key_size = len(server_public_key)
+        else:
+            sec.server_public_key = NULL
+            sec.server_public_key_size = 0
+
+        sec.sms_security_mode = sms_security_mode.value
+
+        if sms_key_parameters:
+            sec.sms_key_parameters = sms_key_parameters
+            sec.sms_key_parameters_size = len(sms_key_parameters)
+        else:
+            sec.sms_key_parameters = NULL
+            sec.sms_key_parameters_size = 0
+
+        if sms_secret_key:
+            sec.sms_secret_key = sms_secret_key
+            sec.sms_secret_key_size = len(sms_secret_key)
+        else:
+            sec.sms_secret_key = NULL
+            sec.sms_secret_key_size = 0
+
+        if server_sms_number:
+            if isinstance(server_sms_number, str):
+                server_sms_number = server_sms_number.encode()
+            sec.server_sms_number = server_sms_number
+        else:
+            sec.server_sms_number = NULL
 
         security_object_id = 0
         cdef anjay_iid_t security_instance_id = ANJAY_ID_INVALID
@@ -356,4 +478,3 @@ cdef class Anjay:
                 if anjay_notify_changed(
                         self.anjay, obj.oid, inst.iid, res.rid):
                     raise Exception('Failed to notify changed on %r', res)
-
